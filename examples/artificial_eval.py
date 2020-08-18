@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
@@ -10,6 +11,14 @@ def plot_data(x, y):
     plt.xlim(-1, 1)
     plt.ylim(-1, 1)
     plt.axis('off')
+
+def save_plot(save_file):
+    plt.gca().xaxis.set_major_locator(plt.NullLocator())
+    plt.gca().yaxis.set_major_locator(plt.NullLocator())
+    plt.subplots_adjust(top = 1, bottom = 0, right = 1, left = 0, hspace = 0, wspace = 0)
+    plt.margins(0,0)
+    plt.savefig(save_file, bbox_inches='tight', pad_inches = 0)
+    plt.clf()
 
 def estimated_autocorrelation(x):
     """
@@ -62,34 +71,35 @@ def eval_plot(plot=False):
     print('x_autocorr_b4', estimated_autocorrelation(b4_samples[0].to_numpy())[:5])
 
     if plot:
+        data_path = './plots_artificial/'
+        if not os.path.exists(data_path):
+            os.makedirs(data_path)
         plt.figure(figsize=(12, 12))
-        plt.subplot(3, 3, 1)
-        plot_data(df_naive[0].to_numpy(), df_naive[1].to_numpy())
-        plt.title("Observed Data")
-        plt.subplot(3, 3, 2)
-        plot_data(tfs_A_samples[0].to_numpy(), tfs_A_samples[1].to_numpy())
-        plt.title("TFS_A Sampled Data")
-        plt.subplot(3, 3, 3)
-        plot_data(tfs_B_samples[0].to_numpy(), tfs_B_samples[1].to_numpy())
-        plt.title("TFS_B Sampled Data")
-        plt.subplot(3, 3, 4)
-        plot_data(b1_samples[0].to_numpy(), b1_samples[1].to_numpy())
-        plt.title("B1 Sampled Data")
-        plt.subplot(3, 3, 5)
-        plot_data(b4_samples[0].to_numpy(), b4_samples[1].to_numpy())
-        plt.title("B4 Sampled Data")
-        plt.subplot(3, 3, 6)
-        plot_data(tfs_C_samples[0].to_numpy(), tfs_C_samples[1].to_numpy())
-        plt.title("TFS_C Sampled Data") 
         
-        plt.savefig('artificial_data_cmin.png')
-        plt.show()
+        plot_data(df_naive[0].to_numpy(), df_naive[1].to_numpy())
+        save_plot(data_path+'observed.png')
+
+        plot_data(tfs_A_samples[0].to_numpy(), tfs_A_samples[1].to_numpy())
+        save_plot(data_path+'tfs_a.png')
+
+        plot_data(tfs_B_samples[0].to_numpy(), tfs_B_samples[1].to_numpy())
+        save_plot(data_path+'tfs_b.png')
+
+        plot_data(b1_samples[0].to_numpy(), b1_samples[1].to_numpy())
+        save_plot(data_path+'b1.png')
+
+        plot_data(b4_samples[0].to_numpy(), b4_samples[1].to_numpy())
+        save_plot(data_path+'b4.png')
+
+        plot_data(tfs_C_samples[0].to_numpy(), tfs_C_samples[1].to_numpy())
+        save_plot(data_path+'tfs_c.png')
+        
 
 def eval_task_col():
     data_path = './data_artificial/'
-    print('='*30 + 'eval_task_row' + '='*30)
+    print('='*30 + 'eval_task_xy_wise' + '='*30)
     def mse_xy(data_name):
-        df = pd.read_csv(data_path+f'artificial_{data_name}.csv')
+        df = pd.read_csv(data_path+'artificial_%s.csv' % data_name)
         df.columns = df.columns.astype(int) 
         df_raw = pd.read_csv(data_path+'artificial_raw.csv')
         df_raw.columns = df_raw.columns.astype(int) 
@@ -100,7 +110,7 @@ def eval_task_col():
         y_true = np.reshape(df_raw[1].tolist(), (-1, 1)) 
         reg = LinearRegression().fit(x, y)
         y_pred = reg.predict(x_true)
-        print(f'{data_name}_train_mse', mean_squared_error(y_true, y_pred))
+        print('%s_train_mse' % data_name, mean_squared_error(y_true, y_pred))
         # print('real_train_rmse', mean_squared_error(real_y, pred_y, squared=False))
     mse_xy('raw')
     mse_xy('tfs_prior_2')
@@ -111,9 +121,9 @@ def eval_task_col():
 
 def eval_task_row():
     data_path = './data_artificial/'
-    print('='*30 + 'eval_task_col' + '='*30)
+    print('='*30 + 'eval_task_x_wise' + '='*30)
     def mse_x(data_name):
-        df = pd.read_csv(data_path+f'artificial_{data_name}.csv')
+        df = pd.read_csv(data_path+'artificial_%s.csv' % data_name)
         df.columns = df.columns.astype(int)
         df_len = len(df.columns)
         df[df_len] = df[0].shift(-1)
@@ -130,7 +140,7 @@ def eval_task_row():
         y_true = df_raw[[2]].to_numpy() 
         reg = LinearRegression().fit(x, y)
         y_pred = reg.predict(x_true)
-        print(f'{data_name}_train_mse', mean_squared_error(y_true, y_pred))
+        print('%s_train_mse' % data_name, mean_squared_error(y_true, y_pred))
         # print('real_train_rmse', mean_squared_error(real_y, pred_y, squared=False))
     mse_x('raw')
     mse_x('tfs_a')
@@ -139,6 +149,6 @@ def eval_task_row():
     mse_x('b4')
 
 if __name__ == "__main__":
-    eval_plot(plot=True)
-    # eval_task_row()
+    eval_plot(plot=False)
+    eval_task_row()
     eval_task_col()
