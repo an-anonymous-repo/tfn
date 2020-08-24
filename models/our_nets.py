@@ -4,41 +4,40 @@ from torch.distributions import Normal, OneHotCategorical
 
 
 class SingleTaskNet(nn.Module):
-    def __init__(self, dim_in, dim_out, dim_window=1, mask_mode=None, encoder_archs=None, decoder_arch=None, model_tag=None):
+    def __init__(self, dim_in, dim_out, dim_window=1, mask_mode=None, encoder_arch=None, decoder_arch=None, model_tag=None):
         super().__init__()
         # data dimension
         self.model_tag = model_tag
         self.dim_in = dim_in
         self.dim_out = dim_out
 
-        self.encoder = None
+        self.window_cnn_network = None
         self.gmm_network = None
-        self.clf = None
+        self.dec_network = None
 
         # mask
         self.mask_mode = mask_mode
         self.mask = None
-        
 
-        if mask_mode is not None:
-            self.mask = torch.ones((1,(dim_window+1)*dim_in))
-            self.mask[0, (dim_window*dim_in)+mask_mode:] = 0
-            print('mask', self.mask)
+        if mask_mode is None:
+            self.mask = torch.ones(((dim_window+1), dim_in))
+            self.mask[dim_window, :] = 0
         else:
-            self.mask = torch.ones((1,(dim_window+1)*dim_in))
-            self.mask[0, (dim_window*dim_in):] = 0
+            self.mask = torch.ones(((dim_window+1), dim_in))
+            self.mask[dim_window, mask_mode:] = 0
+            print('mask', self.mask)
 
-        # curr_in = dim_in * dim_window if mask_mode is None else dim_in * (dim_window+1)
-        curr_in = dim_in * (dim_window+1)
-        if encoder_archs is not None:
-            pass
+        curr_in = dim_in * dim_window if mask_mode is None else dim_in * (dim_window+1)
+        # curr_in = dim_in * (dim_window+1)
+        if encoder_arch is not None:
+            self.window_cnn_network = self.make_layers(encoder_arch)
             
         assert decoder_arch[0] in ['gmm', 'softmax'], "Unknown Decoder Type"
         self.decoder_type = decoder_arch[0]
         if self.decoder_type == 'gmm':
             self.gmm_network = MixtureDensityNetwork(curr_in, dim_out, n_components=decoder_arch[1])
-        else:
-            pass
+        else: #softmax
+            self.dec_network = self.make_decs(curr_in, dim_out, hidden_dim=decoder_arch[1], is_onehot=True)
 
     def forward(self, x):
         # print('forward x', x.shape)
@@ -47,31 +46,46 @@ class SingleTaskNet(nn.Module):
         # print(out)
         # print('forward out', out.shape)
         # print('example x', out[0])
-        if self.encoder is not None:        
-            pass
+        print(self.window_cnn_network)
+        print('out', out.shape)
+        if self.window_cnn_network is not None:        
+            out = self.window_cnn_network(out)
+        out = out.view(out.size()[0], -1)
         if self.gmm_network is not None:
             pi, normal = self.gmm_network(out)
             return pi, normal
+        else:
+            out = self.dec_network(out)
+            print('dec_out', out)
+            return out
     
     def loss(self, x, y):
         if self.decoder_type == 'gmm':
             pi, normal = self.forward(x)
             return self.gmm_network.loss(pi, normal, y)
+        else:
+            out = self.forward(x)
+            y = torch.max(y, 1)[1].long()
+            return torch.nn.CrossEntropyLoss()(out, y)
         
     def sample(self, x):
         if self.decoder_type == 'gmm':
             pi, normal = self.forward(x)
             return self.gmm_network.sample(pi, normal)
+        else:
+            out = self.forward(x)
+            return self.softmax_sample(out)
 
     def make_mask(self, x):
         if self.mask_mode is None:
             # print('masking', x, self.dim_in)
-            # x = x[:, :-self.dim_in]
-            x = x * self.mask
+            x = x[:, :-self.dim_in]
+            # x = x * self.mask
         else:
+            print(x.shape)
+            print('mask', self.mask.shape)
             x = x * self.mask
         return x
-        
 
     def make_layers(self, cfg, batch_norm=True):
         layers = []
@@ -89,6 +103,29 @@ class SingleTaskNet(nn.Module):
                 in_channels = v
         return nn.Sequential(*layers)
 
+    def make_decs(self, input_dim, output_dim, hidden_dim=100, is_onehot=True):
+        if is_onehot:
+            dec_layer = nn.Sequential(
+                #nn.Linear(input_num, hidden_num),
+                #nn.ReLU(inplace=True),
+                #nn.Linear(hidden_num, output_num),
+                nn.Linear(input_dim, output_dim),
+                # nn.Softmax()
+            )
+        else:
+            dec_layer = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(hidden_dim, output_dim),
+                nn.ReLU(inplace=True)
+            )
+        return dec_layer
+    
+    def softmax_sample(self, out):
+        probs = F.softmax(out, dim=1)
+        dist = torch.distributions.Categorical(probs)
+        sample = dist.sample().data.tolist()[0]
+        return sample, dist
 
 
 class MixtureDensityNetwork(nn.Module):

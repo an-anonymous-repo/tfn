@@ -1,2 +1,3 @@
 *.pyc
 venv3/*
+examples/data_ugr16/*
