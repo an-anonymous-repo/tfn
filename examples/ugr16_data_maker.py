@@ -18,7 +18,7 @@ from argparse import ArgumentParser
 def prepare_rawdata(args):
     count = 0
     ntt = NetworkTrafficTransformer()
-    tft = TableFlowTransformer('data_ugr16/training.csv')
+    tft = TableFlowTransformer('data_ugr16/pr_last_training.csv')
     for f in glob.glob('data_ugr16/day1_data/*.csv'):
         print('making train for', f)
         this_ip = f.split("_")[-1][:-4]
@@ -28,7 +28,7 @@ def prepare_rawdata(args):
     print(count)
 
     count = 0
-    tft = TableFlowTransformer('data_ugr16/testing.csv')
+    tft = TableFlowTransformer('data_ugr16/pr_last_testing.csv')
     for f in glob.glob('data_ugr16/day2_data/*.csv'):
         print('making test for', f)
         this_ip = f.split("_")[-1][:-4]
@@ -40,8 +40,6 @@ def prepare_rawdata(args):
 ########################################################################
 # training
 ########################################################################
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def runner_train(args, train_file):
     print('='*25+'start loading train data'+'='*25)
@@ -49,16 +47,13 @@ def runner_train(args, train_file):
     train_loader = torch.utils.data.DataLoader(dataset=train_from_csv, batch_size=args.batch_size, shuffle=True, \
             num_workers=16, pin_memory=True)
     tfs = TableFlowSynthesizer(dim_in=args.n_col, dim_window=args.n_agg, 
-            discrete_columns=[[11,12], [13, 14, 15]], learning_mode=args.learning_mode)
+            discrete_columns=[[11,12], [13, 14, 15]],
+            categorical_columns={5:1670, 6:1670,
+                7:255, 8:255, 9:255, 10:255},
+            learning_mode=args.learning_mode)
     
     tfs.batch_fit(train_loader, epochs=args.train_epochs)
-    
 
-    print('='*25+'start training'+'='*25) 
-    train_loss = []
-
-    
-            
 
 if __name__ == "__main__":
     argparser = ArgumentParser()
@@ -72,4 +67,5 @@ if __name__ == "__main__":
     
     # prepare_rawdata(args)
 
-    runner_train(args, 'data_ugr16/tinytrain.csv')
+    runner_train(args, 'data_ugr16/pr_last_tinytrain.csv')
+    # runner_train(args, 'data_ugr16/tinytrain.csv')

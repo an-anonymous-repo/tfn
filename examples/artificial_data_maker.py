@@ -71,9 +71,10 @@ class artificial_data_generator(object):
 
 
 def our_trainer(args, X, y, learning_mode):
-    window_size, col_num = X.size()
-    print('data shape', window_size, col_num)
+    sample_size, col_num = X.size()
+    print('data shape', sample_size, col_num)
     tfs = TableFlowSynthesizer(dim_in=2, dim_window=1, learning_mode=learning_mode)
+    X = X.view(-1, 2, 2)
     tfs.fit(X, y, epochs=args.n_iterations)
     samples = tfs.sample(args.n_gen_samples)
     samples = pd.DataFrame(samples.numpy())
@@ -122,7 +123,7 @@ if __name__ == "__main__":
     ########################################################################
     # training model and generating synthesis data
     ########################################################################
-    tfs_A_samples = our_trainer(args, X, y, learning_mode='A')
+    # tfs_A_samples = our_trainer(args, X, y, learning_mode='A')
     tfs_B_samples = our_trainer(args, X, y, learning_mode='B')
     input()
     ########################################################################

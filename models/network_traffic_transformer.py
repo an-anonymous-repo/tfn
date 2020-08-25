@@ -20,18 +20,23 @@ class NetworkTrafficTransformer(object):
 
     def _map_ip_str_to_int_list(self, ip_str, ipspace=None):
         ip_group = ip_str.split('.')
+        label_rt = []
         rt = []
         pw = 1
         # print(ip_str)
         for i in list(reversed(range(len(ip_group)))):
-            rt.append(int(ip_group[i]))
-        if ipspace is not None:
-            for i in range(len(rt)):
-                rt[i] /= ipspace
-        return rt
+            label_rt.append(int(ip_group[i]))
+        for i in range(len(label_rt)):
+            rt.append(label_rt[i]/ipspace)
+        return rt, label_rt
 
-    def _port_number_interpreter(self, port_num, portspace):
-        return [port_num/portspace]
+    def _port_number_interpreter(self, port_num, portspace=None):
+        rt = [port_num/portspace]
+
+        def get_category(x):
+            return (x-1024)//100+1024 if x >= 1024 else x
+        label_rt = [get_category(port_num)]
+        return rt, label_rt
    
     def transfer(self, df):
         df['log_byt'] = np.log(df['byt'])
@@ -51,23 +56,32 @@ class NetworkTrafficTransformer(object):
         for index, row in df.iterrows():
             # each row: teT, delta_t, byt, in/out, tcp/udp/other, sa*4, da*4, sp_sig/sp_sys/sp_other, dp*3 
             line = [row['teT']/teTmax, row['teDelta']/td_max, row['log_byt']/b_max, row['log_pkt']/pktmax, row['td']/tdmax]
+            label_line = [row['teT']/teTmax, row['teDelta']/td_max, row['log_byt']/b_max, row['log_pkt']/pktmax, row['td']/tdmax]
             # line = [row['teT']/teTmax, row['log_byt']/bytmax]
             # [out, in]
-            sip_list = self._map_ip_str_to_int_list(row['sa'], ipspace)
-            dip_list = self._map_ip_str_to_int_list(row['da'], ipspace)
+            sip_list, label_sip_list = self._map_ip_str_to_int_list(row['sa'], ipspace)
+            dip_list, label_dip_list = self._map_ip_str_to_int_list(row['da'], ipspace)
             
-            spo_list = self._port_number_interpreter(row['sp'], portspace)
-            dpo_list = self._port_number_interpreter(row['dp'], portspace)
+            spo_list, label_spo_list = self._port_number_interpreter(row['sp'], portspace)
+            dpo_list, label_dpo_list = self._port_number_interpreter(row['dp'], portspace)
 
             if row['sa'] == this_ip:
                 #line += sip_list + dip_list
                 line += spo_list 
                 line += dpo_list + dip_list 
                 line += [1, 0]
+                
+                label_line += label_spo_list 
+                label_line += label_dpo_list + label_dip_list 
+                label_line += [1, 0]
             else:
                 line += dpo_list
                 line += spo_list + sip_list
                 line += [0, 1]
+
+                label_line += label_dpo_list
+                label_line += label_spo_list + label_sip_list
+                label_line += [0, 1]
 
             line_pr = []
             if row['pr'] == 'TCP':
@@ -77,6 +91,7 @@ class NetworkTrafficTransformer(object):
             else:
                 line_pr = [0, 0, 1]
             line += line_pr
+            label_line += line_pr
 
             buffer.append(line)
 

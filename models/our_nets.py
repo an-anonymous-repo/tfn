@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from torch.distributions import Normal, OneHotCategorical
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class SingleTaskNet(nn.Module):
     def __init__(self, dim_in, dim_out, dim_window=1, mask_mode=None, encoder_arch=None, decoder_arch=None, model_tag=None):
@@ -27,7 +28,6 @@ class SingleTaskNet(nn.Module):
         else:
             self.mask = torch.ones(((dim_window+1), dim_in))
             self.mask[dim_window, mask_mode:] = 0
-            # print('mask', self.mask)
 
         curr_in = dim_in * dim_window if mask_mode is None else dim_in * (dim_window+1)
         # curr_in = dim_in * (dim_window+1)
@@ -59,16 +59,24 @@ class SingleTaskNet(nn.Module):
             # print('dec_out', out)
             return out
     
-    def loss(self, x, y):
+    def loss(self, x, y, y_reshape_func=None):
         if self.decoder_type == 'gmm':
             pi, normal = self.forward(x)
             batch_loss = self.gmm_network.loss(pi, normal, y)
         else:
             out = self.forward(x)
-            y = torch.max(y, 1)[1].long()
+            # print('model_tag',self.model_tag, y.shape, 'y_type', type(y), y)
+            # input()
+            if y.size()[1] > 1:
+                y = torch.max(y, 1)[1].long()
+            else:
+                if y_reshape_func is not None:
+                    y = y_reshape_func(y)
+                y = y.long().squeeze(1)
+            # print('fixed', y)
             batch_loss = torch.nn.CrossEntropyLoss()(out, y)
-        self.memory.append(batch_loss.detach().numpy())
-        print(batch_loss.detach().numpy())
+        self.memory.append(batch_loss.cpu().detach().numpy())
+        # print('batch_loss', batch_loss.detach().numpy())
         return batch_loss
     
     def batch_reset(self):
@@ -96,7 +104,7 @@ class SingleTaskNet(nn.Module):
         else:
             # print(x.shape)
             # print('mask', self.mask.shape)
-            x = x * self.mask
+            x = x * self.mask.to(device)
         return x
 
     def make_layers(self, cfg, batch_norm=True):
@@ -162,7 +170,7 @@ class MixtureDensityNetwork(nn.Module):
         return self.pi_network(x), self.normal_network(x)
 
     def manual_logsumexp(self, x, dim=1):
-        return torch.log(torch.sum(torch.exp(x), dim=dim))
+        return torch.log(torch.sum(torch.exp(x)+1e-10, dim=dim))
 
     def loss(self, pi, normal, y):
         loglik = normal.log_prob(y.unsqueeze(1).expand_as(normal.loc))
