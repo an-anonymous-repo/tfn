@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 from torch.distributions import Normal, OneHotCategorical
 
 
@@ -14,6 +15,7 @@ class SingleTaskNet(nn.Module):
         self.window_cnn_network = None
         self.gmm_network = None
         self.dec_network = None
+        self.memory = []
 
         # mask
         self.mask_mode = mask_mode
@@ -25,13 +27,13 @@ class SingleTaskNet(nn.Module):
         else:
             self.mask = torch.ones(((dim_window+1), dim_in))
             self.mask[dim_window, mask_mode:] = 0
-            print('mask', self.mask)
+            # print('mask', self.mask)
 
         curr_in = dim_in * dim_window if mask_mode is None else dim_in * (dim_window+1)
         # curr_in = dim_in * (dim_window+1)
         if encoder_arch is not None:
             self.window_cnn_network = self.make_layers(encoder_arch)
-            
+            curr_in = 512
         assert decoder_arch[0] in ['gmm', 'softmax'], "Unknown Decoder Type"
         self.decoder_type = decoder_arch[0]
         if self.decoder_type == 'gmm':
@@ -43,12 +45,10 @@ class SingleTaskNet(nn.Module):
         # print('forward x', x.shape)
         # print('example x', x[0])
         out = self.make_mask(x)
-        # print(out)
-        # print('forward out', out.shape)
-        # print('example x', out[0])
-        print(self.window_cnn_network)
-        print('out', out.shape)
-        if self.window_cnn_network is not None:        
+
+        if self.window_cnn_network is not None:
+            out = torch.unsqueeze(out, 1)
+            # print(out.shape)
             out = self.window_cnn_network(out)
         out = out.view(out.size()[0], -1)
         if self.gmm_network is not None:
@@ -56,17 +56,29 @@ class SingleTaskNet(nn.Module):
             return pi, normal
         else:
             out = self.dec_network(out)
-            print('dec_out', out)
+            # print('dec_out', out)
             return out
     
     def loss(self, x, y):
         if self.decoder_type == 'gmm':
             pi, normal = self.forward(x)
-            return self.gmm_network.loss(pi, normal, y)
+            batch_loss = self.gmm_network.loss(pi, normal, y)
         else:
             out = self.forward(x)
             y = torch.max(y, 1)[1].long()
-            return torch.nn.CrossEntropyLoss()(out, y)
+            batch_loss = torch.nn.CrossEntropyLoss()(out, y)
+        self.memory.append(batch_loss.detach().numpy())
+        print(batch_loss.detach().numpy())
+        return batch_loss
+    
+    def batch_reset(self):
+        self.memory = []
+    
+    def get_batch_loss(self):
+        # print(self.memory)
+        # print(np.mean(self.memory[0]))
+        # input()
+        return np.mean(self.memory[0])
         
     def sample(self, x):
         if self.decoder_type == 'gmm':
@@ -82,8 +94,8 @@ class SingleTaskNet(nn.Module):
             x = x[:, :-self.dim_in]
             # x = x * self.mask
         else:
-            print(x.shape)
-            print('mask', self.mask.shape)
+            # print(x.shape)
+            # print('mask', self.mask.shape)
             x = x * self.mask
         return x
 
@@ -149,11 +161,17 @@ class MixtureDensityNetwork(nn.Module):
     def forward(self, x):
         return self.pi_network(x), self.normal_network(x)
 
+    def manual_logsumexp(self, x, dim=1):
+        return torch.log(torch.sum(torch.exp(x), dim=dim))
+
     def loss(self, pi, normal, y):
         loglik = normal.log_prob(y.unsqueeze(1).expand_as(normal.loc))
         loglik = torch.sum(loglik, dim=2)
-        loss = -torch.logsumexp(torch.log(pi.probs) + loglik, dim=1)
-        return loss
+        # loss = -torch.logsumexp(torch.log(pi.probs) + loglik, dim=1)
+        loss = -self.manual_logsumexp(torch.log(pi.probs) + loglik, dim=1)
+        # print('our loss', loss)
+        # input()
+        return torch.mean(loss)
 
     def sample(self, pi, normal):
         # pi, normal = self.forward(x)

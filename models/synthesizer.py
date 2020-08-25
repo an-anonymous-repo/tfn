@@ -54,9 +54,9 @@ class TableFlowSynthesizer(object):
             mask_mode = None if learning_mode == 'A' else col_i 
             model_i = SingleTaskNet(dim_in=dim_in, dim_out=1,
                             dim_window=dim_window, mask_mode=mask_mode,
-                            #encoder_arch=[64, 64, 'M', 128, 128, 'M'],
+                            encoder_arch=[64, 64, 'M', 128, 128, 'M'],
                             decoder_arch=['gmm', 2], model_tag=col_i)
-            optim_i = optim.Adam(model_i.parameters(), lr=0.2) # 0.005
+            optim_i = optim.Adam(model_i.parameters(), lr=0.3) # 0.005
             sched_i = optim.lr_scheduler.StepLR(optim_i, step_size=10, gamma=0.9)
 
             self.models[col_i] = model_i
@@ -67,7 +67,7 @@ class TableFlowSynthesizer(object):
             mask_mode = None if learning_mode == 'A' else col_i 
             model_i = SingleTaskNet(dim_in=dim_in, dim_out=self.discrete_dim[col_i],
                         dim_window=dim_window, mask_mode=mask_mode,
-                        #encoder_arch=[64, 64, 'M', 128, 128, 'M'], 
+                        encoder_arch=[64, 64, 'M', 128, 128, 'M'], 
                         decoder_arch=['softmax', 100], model_tag=col_i)
             optim_i = optim.Adam(model_i.parameters(), lr=0.2) # 0.005
             sched_i = optim.lr_scheduler.StepLR(optim_i, step_size=10, gamma=0.9)
@@ -75,8 +75,9 @@ class TableFlowSynthesizer(object):
             self.models[col_i] = model_i
             self.optimizers[col_i] = optim_i
             self.schedulers[col_i] = sched_i
-
-        with open('train_loss.csv','w') as f:
+        
+        self.loss_file = 'train_loss.csv' 
+        with open(self.loss_file, 'w') as f:
             writer = csv.writer(f)
             writer.writerows([['epoch','time']+sorted(self.models.keys())])
 
@@ -92,7 +93,8 @@ class TableFlowSynthesizer(object):
             start_time = time.time()
             for step, (batch_X, batch_y) in enumerate(train_loader):
                 minibatch = batch_X.view(-1, self.dim_window+1, self.dim_in)
-                for col_i in self.cont_agents:
+                for col_i in self.cont_agents + self.disc_agents:
+                    # print('training', col_i)
                     model = self.models[col_i]
                     optimizer = self.optimizers[col_i]
                     scheduler = self.schedulers[col_i]
@@ -104,8 +106,12 @@ class TableFlowSynthesizer(object):
                     optimizer.step()
                     scheduler.step()
             end_time = time.time()
-            temp = [epoch, end_time-start_time] + train_avg_loss
-            with open(loss_file,'a') as f:
+            temp = [epoch, end_time-start_time]
+            for col_i in self.cont_agents + self.disc_agents:
+                temp.append(self.models[col_i].get_batch_loss())
+                self.models[col_i].batch_reset()
+            
+            with open(self.loss_file, 'a') as f:
                 writer = csv.writer(f)
                 writer.writerows([temp])
 
